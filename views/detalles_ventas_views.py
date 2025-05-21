@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon
 import cv2
 from pyzbar.pyzbar import decode
+import easyocr
 
 class VentanaDetallesVentas(QWidget):
     detalle_modificado = pyqtSignal() 
@@ -122,7 +123,8 @@ class VentanaDetallesVentas(QWidget):
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudieron cargar los detalles: {e}")
-    
+            
+    ## pip install easyocr
     def buscar_articulo_por_codigo(self):
         entrada = self.input_codigo.text().strip()
         cantidad = self.spin_cantidad.value()
@@ -156,41 +158,48 @@ class VentanaDetallesVentas(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al procesar artículo: {e}")
     
+    ##Funcion para escanear y agregar 
     def escanear_y_agregar(self):
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            QMessageBox.critical(self, "Error", "No se pudo acceder a la cámara")
-            return
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
+                QMessageBox.critical(self, "Error", "No se pudo acceder a la cámara")
+                return
 
-        QMessageBox.information(self, "Escaneo", "Apunte el código de barras a la cámara.\nPresione 'Q' para salir.")
+            QMessageBox.information(
+                self,
+                "Escaneo",
+                "Apunte el código de barras a la cámara.\nPresione 'Q' para salir."
+            )
+
+            lector = easyocr.Reader(['es'], gpu=False)
+            codigo_encontrado = None
+
+            try:
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+
+                    resultados = lector.readtext(frame, detail=0, allowlist='0123456789')
+
+                    for texto in resultados:
+                        # Detecta si es un posible código de barras numérico
+                        if texto.isdigit() and len(texto) in [8, 12, 13]:
+                            codigo_encontrado = texto
+                            break
+
+                    cv2.imshow("Escaneo de código de barras", frame)
+
+                    if codigo_encontrado or cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
+            finally:
+                cap.release()
+                cv2.destroyAllWindows()
+
+            if codigo_encontrado:
+                self.input_codigo.setText(codigo_encontrado)
+                self.buscar_articulo_por_codigo()
         
-        codigo_encontrado = None
-
-        try:
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-
-                codigos = decode(frame)
-                for codigo in codigos:
-                    data = codigo.data.decode('utf-8')
-                    codigo_encontrado = data
-                    break
-
-                cv2.imshow("Escaneo de código", frame)
-                
-                if codigo_encontrado or cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
-
-        finally:
-            cap.release()
-            cv2.destroyAllWindows()
-
-        if codigo_encontrado:
-            self.input_codigo.setText(codigo_encontrado)
-            self.buscar_articulo_por_codigo()
-    
     def eliminar_detalle(self):
         fila = self.tabla.currentRow()
         if fila < 0 or fila >= self.tabla.rowCount() - 1:
